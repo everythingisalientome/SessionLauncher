@@ -5,7 +5,8 @@
     <TargetFramework>net8.0-windows</TargetFramework>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
-    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <AssemblyName>CredTool</AssemblyName>
+    <RootNamespace>CredTool</RootNamespace>
   </PropertyGroup>
 
   <ItemGroup>
