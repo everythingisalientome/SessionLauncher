@@ -29,7 +29,7 @@ Two operational modes, both require running as LocalSystem/admin:
 
 Exit codes: 0=success, 1=missing args, 2=session not found/Win32 failure, 3=CreateProcessAsUser failed, 4=credential load failure, 5=session creation timeout, 6=no active session.
 
-Logs to `C:\agents\SessionLauncher.log`.
+Logs to `C:\agents\SessionLauncher.log`. Deploy to `C:\agents\SessionLauncher\`.
 
 ### Credtool (credential manager)
 Encrypts/decrypts a `credentials.yaml` file to/from `credentials.enc` using DPAPI (`DataProtectionScope.LocalMachine`, entropy: `"AgentCredentials:SessionLauncher:v1"`). Credentials are machine-bound and non-portable.
@@ -41,9 +41,9 @@ The encrypted file is read by both SessionLauncher and SessionService. SessionSe
 ### SessionService (Windows service)
 HTTP service (default port 9001) that manages a pool of RDSH sessions. Runs as LocalSystem.
 
-**Session lifecycle:** `Creating → Idle → Available → Busy → Available` (after release), fault state: `Dead`
+**Session lifecycle:** `Creating → Idle → Injecting → Available → Busy → Available` (after release), fault state: `Dead`
 
-**Loopback RDP strategy:** Each session gets a unique loopback IP (`127.0.0.2`, `127.0.0.3`, ...) to isolate credential storage via `cmdkey /add:TERMSRV/127.0.0.X`. This avoids credential collisions when running multiple sessions from SYSTEM.
+**Loopback RDP strategy:** Each session gets a unique loopback IP (`127.0.0.2`, `127.0.0.3`, ...) to isolate credential storage via `cmdkey /add:TERMSRV/127.0.0.X`. This avoids credential collisions when running multiple sessions from SYSTEM. Each session is kept alive by an `mstsc.exe` holder process (`HolderProcessId`) — this is killed before `WTSLogoffSession` on shutdown.
 
 **REST API:**
 - `GET /sessions/status` — list all sessions
@@ -60,11 +60,26 @@ HTTP service (default port 9001) that manages a pool of RDSH sessions. Runs as L
 - `NativeMethods.cs` — P/Invoke for advapi32, wtsapi32, kernel32
 - `Models.cs` — `ManagedSession`, `SessionState` enum, API request/response types
 
-Configuration is in `appsettings.json` (`session_service.port`, `server.max_rdp_sessions`, `agent_types.*`).
+Logs to `C:\agents\SessionService.log`. Deploy to `C:\agents\SessionService\`.
+
+Configuration is in `appsettings.json`:
+- `session_service.port` — HTTP listen port (default 9001)
+- `server.max_rdp_sessions` — cap on sessions created (defaults to credential count)
+- `server.show_rdp_windows` — show/hide mstsc windows (default false)
+- `registry.host` — IP/hostname returned in `AssignResponse` for callers to connect to agents
+- `agent_types.desktop.*` — agent/MCP exe paths and base ports
 
 ## Credential Workflow
 
-1. Edit `credentials.yaml` (format: userid/password/domain/name/email per user)
+1. Edit `credentials.yaml`:
+```yaml
+users:
+  - userid: agent_user_1
+    password: ChangeMe1!
+    domain: "."        # "." = local machine
+    name: Agent User One
+    email: agent1@company.com
+```
 2. Run `CredTool.exe --encrypt` — produces `credentials.enc` and securely wipes the YAML
 3. To edit: `CredTool.exe --decrypt`, modify, then `CredTool.exe --encrypt` again
 
@@ -73,6 +88,8 @@ Configuration is in `appsettings.json` (`session_service.port`, `server.max_rdp_
 ```powershell
 sc.exe create SessionService binPath= "C:\agents\SessionService\SessionService.exe" start= auto obj= LocalSystem
 sc.exe start SessionService
+sc.exe stop SessionService
+sc.exe delete SessionService
 ```
 
 Verify: `curl http://localhost:9001/health`
